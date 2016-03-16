@@ -1,0 +1,126 @@
+= VBA Dynamic Hook - vhook
+
+Copyright (C) 2016 ESET
+
+== References
+
+* Conference talk: http://www.computerworld.pl/konferencja/semafor2016/
+
+== Description
+
+This is our approach to dynamic VBA analysis.
+
+We use idea similar to Windows API Hooking techniques.
+
+Basically, we are trying to find
+
+* the most popular internal VBA functions used inside malicious files (like `Shell`),
+* user defined functions which return string,
+* external function declarations (like `URLDownloadToFileA`),
+* method calls (like `http.Open`)
+
+and log their usage.
+
+This information can be used to decide if macro behaves in a suspicious way.
+
+== Content of this repository
+
+`vhook.bat`:: Start `vhook.vbs` using `cscript` so `Echo` is printed to the console
+`vhook.vbs`:: Main script which runs `unprotect.py`, `parser.py` and `starter.py`, add `class.vba` content to file as another macro
+`unprotect.py`:: Try to remove VBA password protection from `.doc` file
+`parser.py`:: Parse macro content, extract function usage and add logging code to them
+`starter.py`:: Open malicious `.doc` document and close it after timeout
+`class.vba` :: Contain function wrappers and helpers
+
+== Usage
+
+[WARNING]
+Only use VBA Dynamic Hook inside a sandboxed virtual machine!
+
+Before using VBA Dynamic Hook, enable macro support inside Word:
+
+----
+File -> Options -> Trust Center -> Trust Center Settings -> Enable all macros
+----
+
+Start script using:
+
+----
+vhook.bat word_document.doc
+----
+
+Three files will be created after a successful execution:
+
+----
+word_document_without.doc <-- file without VBA macro password protection
+word_document_output.doc  <-- file with added hooks
+vhook_%date%.txt          <-- script output
+----
+
+== Example
+
+Here is example VBA module.
+
+----
+#If Win32 Then
+    Public Declare Sub MessageBeep Lib "User32" (ByVal N As Long)
+#Else
+    Public Declare Sub MessageBeep Lib "User" (ByVal N As Integer)
+#End If
+
+Public Function hex2ascii(ByVal hextext As String) As String
+For y = 1 To Len(hextext)
+    Num = Mid(hextext, y, 2)
+    Value = Value & Chr(Val("&h" & Num))
+    y = y + 1
+Next y
+hex2ascii = Value
+End Function
+
+Sub test_function()
+    a = StrReverse("gnitset")
+    b = Mid("abcexampledef", 4, 7)
+    c = Environ("Temp")
+    d = hex2ascii("656e636f6465645f6865785f737472696e67")
+    MsgBox (d)
+    Shell (Chr(99) & Chr(97) & Chr(108) & Chr(99) & Chr(46) & Chr(101) & Chr(120) & Chr(101))
+
+    Set http = CreateObject("Microsoft.XmlHttp")
+    http.Open "GET", "http://example.com", False
+    http.Send
+    E = http.responseText
+
+    MessageBeep (100)
+End Sub
+----
+
+Output of VBA Dynamic Hook will look like this:
+
+----
+StrReverse testing
+MID example
+Environ Temp
+MID 65
+MID 6e
+MID 63
+MID 6f
+MID 64
+MID 65
+MID 64
+MID 5f
+MID 68
+MID 65
+MID 78
+MID 5f
+MID 73
+MID 74
+MID 72
+MID 69
+MID 6e
+MID 67
+hex2ascii : encoded_hex_string
+Messagebox encoded_hex_string
+Shell calc.exe
+CreateObject Microsoft.XmlHttp
+http.Open, GET, http://example.com, False
+----
